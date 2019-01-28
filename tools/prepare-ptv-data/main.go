@@ -1,9 +1,9 @@
 package main
 
 import (
-	"archive/zip"
 	"encoding/csv"
 	"fmt"
+	"github.com/mholt/archiver"
 	"io"
 	"log"
 	"os"
@@ -12,20 +12,10 @@ import (
 	"sync"
 )
 
-var extractedInputPath = "./gtfs_in"
-var extractedOutputPath = "./gtfs_out"
+var looseInputFiles = "./gtfs_in"
+var consolidatedOutputFiles = "./gtfs_out"
 var innerZipFileName = "google_transit.zip"
 var validGTFSFileNames = []string{"agency", "calendar_dates", "calendar", "routes", "stop_times", "stops", "trips"}
-
-var outputData = map[string][][]string{
-	"agency":         [][]string{{"agency_id", "agency_name", "agency_url", "agency_timezone", "agency_lang"}},
-	"calendar_dates": [][]string{{"service_id", "date", "exception_type"}},
-	"calendar":       [][]string{{"service_id", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "start_date", "end_date"}},
-	"routes":         [][]string{{"route_id", "agency_id", "route_short_name", "route_long_name", "route_type", "route_color", "route_text_color"}},
-	"stop_times":     [][]string{{"trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence", "stop_headsign", "pickup_type", "drop_off_type", "shape_dist_traveled"}},
-	"stops":          [][]string{{"stop_id", "stop_name", "stop_lat", "stop_lon"}},
-	"trips":          [][]string{{"route_id", "service_id", "trip_id", "shape_id", "trip_headsign", "direction_id"}},
-}
 
 // GTFSRecord represents a GTFS record which has been read by walking the extracted
 // input zip. The Type property denotes the kind of GTFS file residing at this path,
@@ -50,36 +40,42 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for record := range walkPTVData(extractedInputPath) {
+	var outputData = map[string][][]string{
+		"agency":         [][]string{{"agency_id", "agency_name", "agency_url", "agency_timezone", "agency_lang"}},
+		"calendar_dates": [][]string{{"service_id", "date", "exception_type"}},
+		"calendar":       [][]string{{"service_id", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "start_date", "end_date"}},
+		"routes":         [][]string{{"route_id", "agency_id", "route_short_name", "route_long_name", "route_type", "route_color", "route_text_color"}},
+		"stop_times":     [][]string{{"trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence", "stop_headsign", "pickup_type", "drop_off_type", "shape_dist_traveled"}},
+		"stops":          [][]string{{"stop_id", "stop_name", "stop_lat", "stop_lon"}},
+		"trips":          [][]string{{"route_id", "service_id", "trip_id", "shape_id", "trip_headsign", "direction_id"}},
+	}
+
+	for record := range walkPTVData(looseInputFiles) {
 		if !isGTFSRecordExisting(record, outputData[record.Type]) {
 			outputData[record.Type] = append(outputData[record.Type], record.Contents)
 		}
 	}
 
-	writeOutput()
+	writeOutput(outputData, consolidatedOutputFiles, "txt")
 
-	fmt.Println(outputData["agency"])
-
-	//err = cleanup()
-
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-
+	err = cleanup()
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func cleanup() error {
-	err := os.RemoveAll(extractedInputPath)
+	err := os.RemoveAll(looseInputFiles)
 	return err
 }
 
-func writeOutput() {
-	if _, err := os.Stat(extractedOutputPath); os.IsNotExist(err) {
-		os.MkdirAll(extractedOutputPath, os.ModePerm)
+func writeOutput(data map[string][][]string, path string, ext string) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		os.MkdirAll(path, os.ModePerm)
 	}
 
-	for k, v := range outputData {
-		writeCSV(v, fmt.Sprintf("%s/%s.txt", extractedOutputPath, k))
+	for k, v := range data {
+		writeCSV(v, fmt.Sprintf("%s/%s.%s", path, k, ext))
 	}
 }
 
@@ -190,14 +186,14 @@ func walkPTVData(path string) chan GTFSRecord {
 func extractPTVData(path string) error {
 	log.Printf("Extracting %s...\n", path)
 	// Extract the input zip.
-	_, err := Unzip(path, extractedInputPath)
+	err := archiver.Unarchive(path, looseInputFiles)
 	if err != nil {
 		return err
 	}
 	log.Printf("Extracted %s. Walking...\n", path)
 
 	// Walk the contents of the extracted input zip, and extract any inner zip files found.
-	err = filepath.Walk(extractedInputPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(looseInputFiles, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Fatalf("Failure to access path %s: %s\n", path, err.Error())
 		}
@@ -208,7 +204,7 @@ func extractPTVData(path string) error {
 			innerOutputPath := strings.Replace(path, ".zip", "", 1)
 
 			log.Printf("Found %s file in path %s\n", innerZipFileName, path)
-			_, err := Unzip(path, innerOutputPath)
+			err := archiver.Unarchive(path, innerOutputPath)
 			if err != nil {
 				log.Fatalf("Unable to unzip %s: %s\n", path, err.Error())
 			}
@@ -218,65 +214,4 @@ func extractPTVData(path string) error {
 		return nil
 	})
 	return err
-}
-
-// Unzip will decompress a zip archive, moving all files and folders
-// within the zip file (parameter 1) to an output directory (parameter 2).
-func Unzip(src string, dest string) ([]string, error) {
-
-	var filenames []string
-
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return filenames, err
-	}
-	defer r.Close()
-
-	for _, f := range r.File {
-
-		rc, err := f.Open()
-		if err != nil {
-			return filenames, err
-		}
-		defer rc.Close()
-
-		// Store filename/path for returning and using later on
-		fpath := filepath.Join(dest, f.Name)
-
-		// Check for ZipSlip. More Info: http://bit.ly/2MsjAWE
-		if !strings.HasPrefix(fpath, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return filenames, fmt.Errorf("%s: illegal file path", fpath)
-		}
-
-		filenames = append(filenames, fpath)
-
-		if f.FileInfo().IsDir() {
-
-			// Make Folder
-			os.MkdirAll(fpath, os.ModePerm)
-
-		} else {
-
-			// Make File
-			if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
-				return filenames, err
-			}
-
-			outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-			if err != nil {
-				return filenames, err
-			}
-
-			_, err = io.Copy(outFile, rc)
-
-			// Close the file without defer to close before next iteration of loop
-			outFile.Close()
-
-			if err != nil {
-				return filenames, err
-			}
-
-		}
-	}
-	return filenames, nil
 }
