@@ -12,7 +12,7 @@ import (
 	"sync"
 )
 
-var outputPath = "./gtfs"
+var extractedInputPath = "./gtfs_in"
 var innerZipFileName = "google_transit.zip"
 var validGTFSFileNames = []string{"agency", "calendar_dates", "calendar", "routes", "shapes", "stop_times", "stops", "trips"}
 
@@ -39,7 +39,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for record := range walkPTVData(outputPath) {
+	for record := range walkPTVData(extractedInputPath) {
 		fmt.Println(record)
 	}
 
@@ -52,7 +52,7 @@ func main() {
 }
 
 func cleanup() error {
-	err := os.RemoveAll(outputPath)
+	err := os.RemoveAll(extractedInputPath)
 	return err
 }
 
@@ -74,6 +74,7 @@ func walkPTVData(path string) chan GTFSRecord {
 	var wg sync.WaitGroup
 
 	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		fmt.Println(path)
 		if err != nil {
 			log.Fatalf("Failure to access path %s: %s\n", path, err.Error())
 		}
@@ -126,17 +127,17 @@ func walkPTVData(path string) chan GTFSRecord {
 
 // Extracts the .zip of the GTFS data supplied by PTV into a temporary directory, including
 // subdirectories (1, 2, 3 etc.).
-func extractPTVData(inputPath string) error {
-	log.Printf("Extracting %s...\n", inputPath)
+func extractPTVData(path string) error {
+	log.Printf("Extracting %s...\n", path)
 	// Extract the input zip.
-	_, err := Unzip(inputPath, outputPath)
+	_, err := Unzip(path, extractedInputPath)
 	if err != nil {
 		return err
 	}
-	log.Printf("Extracted %s. Walking...\n", inputPath)
+	log.Printf("Extracted %s. Walking...\n", path)
 
 	// Walk the contents of the extracted input zip, and extract any inner zip files found.
-	err = filepath.Walk(outputPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(extractedInputPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Fatalf("Failure to access path %s: %s\n", path, err.Error())
 		}
