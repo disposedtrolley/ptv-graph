@@ -2,16 +2,28 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/csv"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 var outputPath = "./gtfs"
 var innerZipFileName = "google_transit.zip"
+var validGTFSFileNames = []string{"agency", "calendar_dates", "calendar", "routes", "shapes", "stop_times", "stops", "trips"}
+
+// GTFSRecord represents a GTFS record which has been read by walking the extracted
+// input zip. The Type property denotes the kind of GTFS file residing at this path,
+// valid values are those in the validGTFSFileNames array.
+type GTFSRecord struct {
+	Path     string
+	Type     string
+	Contents []string
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -27,16 +39,89 @@ func main() {
 		log.Fatal(err)
 	}
 
+	for record := range walkPTVData(outputPath) {
+		fmt.Println(record)
+	}
+
 	//err = cleanup()
 
 	//if err != nil {
 	//	log.Fatal(err)
 	//}
+
 }
 
 func cleanup() error {
 	err := os.RemoveAll(outputPath)
 	return err
+}
+
+func fileIsGTFSFile(fileName string) bool {
+	for _, str := range validGTFSFileNames {
+		if fileName == fmt.Sprintf("%s.txt", str) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Walks the fully extracted PTV GTFS zip and outputs each row of each GTFS CSV through a goroutine
+// channel. Each row is wrapped in a GTFSRecord struct which contains the path of the parent file,
+// the kind of file (stop_times, routes etc.), and the string slice of CSV data itself.
+func walkPTVData(path string) chan GTFSRecord {
+	c := make(chan GTFSRecord)
+	var wg sync.WaitGroup
+
+	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Fatalf("Failure to access path %s: %s\n", path, err.Error())
+		}
+
+		// Check if we've arrived at a GTFS txt file.
+		if !info.IsDir() && fileIsGTFSFile(info.Name()) {
+			// Add a task to the waitgroup and fire off a goroutine.
+			wg.Add(1)
+			go func() {
+				file, err := os.Open(path)
+				if err != nil {
+					log.Fatalf("Unable to open %s: %s\n", path, err.Error())
+				}
+
+				csvFile := csv.NewReader(file)
+				// Iterate through the records of the current file.
+				for {
+					record, err := csvFile.Read()
+
+					if err == io.EOF {
+						break
+					}
+
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					recordType := strings.Split(info.Name(), ".")[0]
+					c <- GTFSRecord{Path: path, Type: recordType, Contents: record}
+				}
+				wg.Done()
+			}()
+		}
+
+		return err
+	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Close the channel after all records from all files have been read.
+	go func() {
+		wg.Wait()
+		close(c)
+	}()
+
+	return c
 }
 
 // Extracts the .zip of the GTFS data supplied by PTV into a temporary directory, including
