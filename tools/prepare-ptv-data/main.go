@@ -13,8 +13,19 @@ import (
 )
 
 var extractedInputPath = "./gtfs_in"
+var extractedOutputPath = "./gtfs_out"
 var innerZipFileName = "google_transit.zip"
-var validGTFSFileNames = []string{"agency", "calendar_dates", "calendar", "routes", "shapes", "stop_times", "stops", "trips"}
+var validGTFSFileNames = []string{"agency", "calendar_dates", "calendar", "routes", "stop_times", "stops", "trips"}
+
+var outputData = map[string][][]string{
+	"agency":         [][]string{{"agency_id", "agency_name", "agency_url", "agency_timezone", "agency_lang"}},
+	"calendar_dates": [][]string{{"service_id", "date", "exception_type"}},
+	"calendar":       [][]string{{"service_id", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "start_date", "end_date"}},
+	"routes":         [][]string{{"route_id", "agency_id", "route_short_name", "route_long_name", "route_type", "route_color", "route_text_color"}},
+	"stop_times":     [][]string{{"trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence", "stop_headsign", "pickup_type", "drop_off_type", "shape_dist_traveled"}},
+	"stops":          [][]string{{"stop_id", "stop_name", "stop_lat", "stop_lon"}},
+	"trips":          [][]string{{"route_id", "service_id", "trip_id", "shape_id", "trip_headsign", "direction_id"}},
+}
 
 // GTFSRecord represents a GTFS record which has been read by walking the extracted
 // input zip. The Type property denotes the kind of GTFS file residing at this path,
@@ -40,8 +51,12 @@ func main() {
 	}
 
 	for record := range walkPTVData(extractedInputPath) {
-		fmt.Println(record)
+		if !isGTFSRecordExisting(record, outputData[record.Type]) {
+			outputData[record.Type] = append(outputData[record.Type], record.Contents)
+		}
 	}
+
+	fmt.Println(outputData["agency"])
 
 	//err = cleanup()
 
@@ -56,6 +71,19 @@ func cleanup() error {
 	return err
 }
 
+// Returns whether a supplied GTFSRecord exists in a target array.
+func isGTFSRecordExisting(rec GTFSRecord, targetArrays [][]string) bool {
+	for _, arr := range targetArrays {
+		if rec.Contents[0] == arr[0] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Returns whether a given filename is likely a GTFS file, i.e. if its name
+// matches one of the values in validGTFSFileNames.
 func fileIsGTFSFile(fileName string) bool {
 	for _, str := range validGTFSFileNames {
 		if fileName == fmt.Sprintf("%s.txt", str) {
@@ -74,7 +102,6 @@ func walkPTVData(path string) chan GTFSRecord {
 	var wg sync.WaitGroup
 
 	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
-		fmt.Println(path)
 		if err != nil {
 			log.Fatalf("Failure to access path %s: %s\n", path, err.Error())
 		}
@@ -90,6 +117,8 @@ func walkPTVData(path string) chan GTFSRecord {
 				}
 
 				csvFile := csv.NewReader(file)
+				// Skip the header row.
+				csvFile.Read()
 				// Iterate through the records of the current file.
 				for {
 					record, err := csvFile.Read()
