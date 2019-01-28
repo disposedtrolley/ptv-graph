@@ -56,6 +56,8 @@ func main() {
 		}
 	}
 
+	writeOutput()
+
 	fmt.Println(outputData["agency"])
 
 	//err = cleanup()
@@ -69,6 +71,35 @@ func main() {
 func cleanup() error {
 	err := os.RemoveAll(extractedInputPath)
 	return err
+}
+
+func writeOutput() {
+	if _, err := os.Stat(extractedOutputPath); os.IsNotExist(err) {
+		os.MkdirAll(extractedOutputPath, os.ModePerm)
+	}
+
+	for k, v := range outputData {
+		writeCSV(v, fmt.Sprintf("%s/%s.txt", extractedOutputPath, k))
+	}
+}
+
+func writeCSV(data [][]string, path string) {
+	file, err := os.Create(path)
+
+	if err != nil {
+		log.Fatalf("Unable to create output file %s: %s\n", path, err.Error())
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	for _, value := range data {
+		err := writer.Write(value)
+		if err != nil {
+			log.Fatalf("Unable to write row to file: %s\n", err.Error())
+		}
+	}
 }
 
 // Returns whether a supplied GTFSRecord exists in a target array.
