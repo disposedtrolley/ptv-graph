@@ -35,7 +35,6 @@ func main() {
 	inputPath := os.Args[1]
 
 	err := extractPTVData(inputPath)
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,17 +57,25 @@ func main() {
 
 	writeOutput(outputData, consolidatedOutputFiles, "txt")
 
-	err = cleanup()
+	cleanup()
+}
+
+// Removes the temporary directories (gtfs_in and gtfs_out) created when
+// the original files were extracted and the consolidated output was produced.
+func cleanup() {
+	err := os.RemoveAll(looseInputFiles)
 	if err != nil {
-		log.Println(err)
+		log.Printf("Error when deleting extracted input files: %s\n", err.Error())
+	}
+
+	err = os.RemoveAll(consolidatedOutputFiles)
+	if err != nil {
+		log.Printf("Error when deleting consolidated output files: %s\n", err.Error())
 	}
 }
 
-func cleanup() error {
-	err := os.RemoveAll(looseInputFiles)
-	return err
-}
-
+// Writes each 2D string slice in the supplied map to its own CSV file, where
+// the name of the file is the key of the map.
 func writeOutput(data map[string][][]string, path string, ext string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		os.MkdirAll(path, os.ModePerm)
@@ -77,8 +84,11 @@ func writeOutput(data map[string][][]string, path string, ext string) {
 	for k, v := range data {
 		writeCSV(v, fmt.Sprintf("%s/%s.%s", path, k, ext))
 	}
+
+	archiver.Archive([]string{path}, fmt.Sprintf("%s.zip", path))
 }
 
+// Writes a 2D slice of strings to a CSV file.
 func writeCSV(data [][]string, path string) {
 	file, err := os.Create(path)
 
