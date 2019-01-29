@@ -15,7 +15,7 @@ import (
 var looseInputFiles = "./gtfs_in"
 var consolidatedOutputFiles = "./gtfs_out"
 var innerZipFileName = "google_transit.zip"
-var validGTFSFileNames = []string{"agency", "calendar_dates", "calendar", "routes", "stop_times", "stops", "trips"}
+var validGTFSFileNames = []string{"agency", "calendar_dates", "calendar", "routes", "stop_times", "stops", "trips", "shapes"}
 
 // GTFSRecord represents a GTFS record which has been read by walking the extracted
 // input zip. The Type property denotes the kind of GTFS file residing at this path,
@@ -47,6 +47,7 @@ func main() {
 		"stop_times":     [][]string{{"trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence", "stop_headsign", "pickup_type", "drop_off_type", "shape_dist_traveled"}},
 		"stops":          [][]string{{"stop_id", "stop_name", "stop_lat", "stop_lon"}},
 		"trips":          [][]string{{"route_id", "service_id", "trip_id", "shape_id", "trip_headsign", "direction_id"}},
+		"shapes":         [][]string{{"shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence", "shape_dist_traveled"}},
 	}
 
 	for record := range walkPTVData(looseInputFiles) {
