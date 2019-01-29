@@ -23,4 +23,5 @@
 # End of https://www.gitignore.io/api/go
 .DS_Store
 /data
-/tools/prepare-ptv-data/tmp
+/tools/prepare-ptv-data/gtfs_in
+
